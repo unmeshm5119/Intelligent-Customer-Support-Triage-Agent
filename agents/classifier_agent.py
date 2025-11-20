@@ -1,23 +1,27 @@
 import asyncio
-from typing import Dict
+from .base import BaseAgent, AgentResult
 
 
-class MockLLMAdapter:
-"""A tiny synchronous simulator of an LLM for local testing.
-Replace with (async) OpenAI/Anthropic adapter in production.
-"""
-async def generate(self, prompt: str, *, max_tokens: int = 256) -> str:
-await asyncio.sleep(0.05)
-# Very simple heuristics to simulate LLM outputs.
-p = prompt.lower()
-if 'billing' in p or 'invoice' in p:
-return 'INTENT:billing\nPRIORITY:medium\nROUTE:finance'
-if 'password' in p or 'login' in p or 'cannot access' in p:
-return 'INTENT:auth_issue\nPRIORITY:high\nROUTE:it_support'
-if 'how do i' in p or 'how to' in p:
-return 'INTENT:howto\nPRIORITY:low\nROUTE:help_center\nSUGGESTED_REPLY:See our help doc at https://kb.example.com/article-123'
-# Otherwise ask for clarification sometimes
-if len(p.split()) < 6:
-return 'CLARIFY:Can you provide the account id and the exact steps to reproduce?'
-# fallback
-return 'INTENT:general_inquiry\nPRIORITY:low\nROUTE:general_support'
+class ClassifierAgent(BaseAgent):
+def __init__(self, name: str, llm_adapter):
+super().__init__(name)
+self.llm = llm_adapter
+
+
+async def run(self, ctx):
+text = ctx.get('ticket_text', '')
+if not text:
+return AgentResult(False, error='no ticket_text in ctx')
+prompt = f"Classify this support ticket and return lines like KEY:VALUE.\nTICKET:\n{text}\n\nRespond concisely."
+resp = await self.llm.generate(prompt)
+out = self.parse(resp)
+return AgentResult(True, data=out)
+
+
+def parse(self, text: str):
+data = {}
+for line in text.splitlines():
+if ':' in line:
+k, v = line.split(':', 1)
+data[k.strip().lower()] = v.strip()
+return data
